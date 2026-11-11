@@ -296,6 +296,65 @@ const TOOL_ROOTS = fileRoots({
 })
 
 /**
+ * Spoken confirmation for anything that changes the world.
+ *
+ * Writes being enabled says what JARVIS *may* do; it does not say the user
+ * wanted this particular thing done right now. So every effectful call is held
+ * once: the hook refuses it with an instruction to describe the action and ask,
+ * and it goes through only after the user's own next utterance agrees.
+ *
+ * "Effectful" is not a second list to keep in step with policy.mjs — it is
+ * asked directly: a tool needs confirmation exactly when it would have been
+ * refused with writes off. Anything allowed in read-only mode (reading a page,
+ * searching, retinting the HUD) is untouched and never interrupts anyone.
+ *
+ * The grant is bound to the exact tool and arguments, consumed on use, and
+ * expires, so a yes cannot drift onto a later or larger action. It is set only
+ * from a message the user actually spoke into the interface — never from tool
+ * output or page text, so a page claiming the user approved something is just
+ * text that nothing reads.
+ *
+ * One shared slot, because this bridge serves one person at one microphone.
+ */
+const CONFIRM_WINDOW_MS = 120_000
+
+const CONFIRM_PHRASE =
+  /^(yes|yeah|yep|yup|ok|okay|sure|affirmative|correct|confirm|confirmed|proceed|do it|go ahead|go on|please do)\b[\s,.!]*(please|sir|do it|go ahead|thanks)?[\s,.!]*$/i
+
+const confirmation = { pending: null, granted: null }
+
+const actionSignature = (name, input) => {
+  try {
+    return `${name}:${JSON.stringify(input ?? {})}`.slice(0, 1000)
+  } catch {
+    return `${name}:unserialisable`
+  }
+}
+
+/** A tool needs confirming exactly when read-only mode would have refused it. */
+const changesSomething = (name, input) =>
+  !checkToolUse(name, input, {
+    allowWrites: false,
+    cwd: WORKSPACE,
+    roots: TOOL_ROOTS,
+  }).allow
+
+/**
+ * The user said something. If an action is waiting on them, their answer
+ * settles it — anything that is not a yes drops the request rather than
+ * leaving it armed for a later, unrelated "sure".
+ */
+const noteUserUtterance = (said) => {
+  const pending = confirmation.pending
+  if (!pending) return
+  confirmation.pending = null
+  if (Date.now() - pending.at > CONFIRM_WINDOW_MS) return
+  if (!CONFIRM_PHRASE.test(String(said).trim())) return
+  confirmation.granted = { signature: pending.signature, at: Date.now() }
+  console.log(`[jarvis] ${pending.name} confirmed by the user`)
+}
+
+/**
  * The enforcement point. A PreToolUse hook runs before every tool call,
  * including the ones the CLI would otherwise approve on its own without
  * consulting canUseTool — see policy.mjs for the measurement.
@@ -310,6 +369,26 @@ const enforcePolicy = async (input) => {
   if (!reason && input.tool_name === 'WebFetch') {
     const problem = await fetchTargetProblem(input.tool_input?.url)
     if (problem) reason = `Blocked: that address cannot be fetched (${problem}).`
+  }
+  if (!reason && ALLOW_WRITES && changesSomething(input.tool_name, input.tool_input)) {
+    const signature = actionSignature(input.tool_name, input.tool_input)
+    const granted = confirmation.granted
+    if (
+      granted &&
+      granted.signature === signature &&
+      Date.now() - granted.at < CONFIRM_WINDOW_MS
+    ) {
+      confirmation.granted = null
+      console.log(`[jarvis] tool ${input.tool_name} -> allow (confirmed)`)
+    } else {
+      confirmation.pending = { name: input.tool_name, signature, at: Date.now() }
+      console.log(`[jarvis] tool ${input.tool_name} -> hold (awaiting confirmation)`)
+      reason =
+        'Hold: this action would change something and the user has not agreed' +
+        ' to it yet. Say in one short sentence exactly what you are about to' +
+        ' do, then ask them to confirm. Do not attempt it again until they' +
+        ' have answered yes.'
+    }
   }
   if (!reason) return {}
   console.log(`[jarvis] tool ${input.tool_name} -> deny (policy)`)
@@ -1557,6 +1636,8 @@ wss.on('connection', (socket) => {
        */
       const text = msg.text
       const id = typeof msg.id === 'string' ? msg.id : null
+      // Their own words are the only thing that can release a held action.
+      noteUserUtterance(text)
       void settling.then(() => {
         answering = id
         if (deliver) {
