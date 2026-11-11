@@ -235,6 +235,35 @@ function createWindow() {
     win.hide()
   })
 
+  /**
+   * What the page can actually hear, said out loud at startup.
+   *
+   * The browser build's keyless path is `webkitSpeechRecognition`, and the
+   * trap is that Electron HAS it: the constructor is present, `new` succeeds,
+   * the microphone opens and `onaudiostart` fires. It is a shell around
+   * Google's speech service, and Chromium builds carry no key for it, so the
+   * first utterance comes back `error: network` and the engine dies. The
+   * heartbeat rebuilds it and it dies again.
+   *
+   * Measured here: the wake word can slip through on a first result while the
+   * sentence after it never does — which reads as "it ignores me" rather than
+   * as a missing credential. So the only honest answer is the bridge's /stt
+   * endpoint, and the only honest thing to print is that it is missing.
+   */
+  win.webContents.once('did-finish-load', async () => {
+    const stt = await win.webContents
+      .executeJavaScript(`fetch('http://127.0.0.1:8787/health').then(r => r.json()).then(h => h.stt)`)
+      .catch(() => false)
+    console.log(
+      stt
+        ? '[desktop] speech in: ElevenLabs Scribe'
+        : '[desktop] no usable speech input: the bridge reports no ElevenLabs' +
+            " key, and Electron's own recogniser fails with `network`. Expect" +
+            ' the wake word to be unreliable or dead until ELEVENLABS_API_KEY' +
+            ' is set. Space-to-talk has the same problem; the HUD still works.',
+    )
+  })
+
   return win.loadURL(origin)
 }
 
@@ -293,6 +322,7 @@ function buildTray() {
  */
 function watchPhase() {
   ipcMain.on('jarvis:phase', (_event, phase) => {
+    console.log(`[face] phase: ${phase}`)
     if (!win) return
     if ((phase === 'waking' || phase === 'listening') && !win.isVisible()) {
       win.showInactive()

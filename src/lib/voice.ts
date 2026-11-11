@@ -770,6 +770,10 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     rec.onresult = onResult
     rec.onerror = (ev: any) => {
       diag.lastError = String(ev.error ?? '')
+      // Also to the console: under the desktop shell there is no diagnostics
+      // panel anyone is looking at, and a recognition engine that dies after
+      // every wake word is indistinguishable from one that simply never hears.
+      console.warn(`[jarvis] speech recognition error: ${diag.lastError}`)
       if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
         stopped = true
         diag.running = false
