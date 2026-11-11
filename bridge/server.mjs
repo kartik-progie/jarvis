@@ -21,6 +21,7 @@ import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
+import { consentServer } from './consent.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -323,6 +324,17 @@ const CONFIRM_PHRASE =
 
 const confirmation = { pending: null, granted: null }
 
+/**
+ * The last thing the user actually said, and when.
+ *
+ * This is the anchor for the whole mechanism. Consent has to come from a human
+ * at a microphone, so the bridge keeps what the microphone delivered and will
+ * only release an action against a quote from it. Tool output and page text
+ * never pass through here, which is what stops a page that prints "the user
+ * approves" from meaning anything.
+ */
+let lastUtterance = null
+
 const actionSignature = (name, input) => {
   try {
     return `${name}:${JSON.stringify(input ?? {})}`.slice(0, 1000)
@@ -345,13 +357,69 @@ const changesSomething = (name, input) =>
  * leaving it armed for a later, unrelated "sure".
  */
 const noteUserUtterance = (said) => {
+  lastUtterance = { text: String(said), at: Date.now() }
+
+  // The fast path, kept because it costs nothing and covers the common case:
+  // a reply that is nothing but agreement needs no interpreting. Anything
+  // wordier is left for the model, which heard the sentence and can tell
+  // "yes, open it" from "not that one, the one with the blue icon".
   const pending = confirmation.pending
   if (!pending) return
-  confirmation.pending = null
-  if (Date.now() - pending.at > CONFIRM_WINDOW_MS) return
+  if (Date.now() - pending.at > CONFIRM_WINDOW_MS) {
+    confirmation.pending = null
+    return
+  }
   if (!CONFIRM_PHRASE.test(String(said).trim())) return
   confirmation.granted = { signature: pending.signature, at: Date.now() }
+  confirmation.pending = null
   console.log(`[jarvis] ${pending.name} confirmed by the user`)
+}
+
+/** Punctuation and casing are not what a quote should turn on. */
+const flatten = (s) =>
+  String(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+/**
+ * The model's claim that the user agreed, checked against what was heard.
+ *
+ * Everything here is a bound on a judgement that has already been made
+ * elsewhere: the model decides what the reply meant, and these decide whether
+ * it is allowed to mean anything. There must be an action waiting; the user
+ * must have spoken since it started waiting; and the words the model quotes
+ * must actually appear in what they said. The grant is still one action, still
+ * consumed on use, still expiring.
+ */
+const claimConsent = (said) => {
+  const pending = confirmation.pending
+  if (!pending) {
+    return { ok: false, reason: 'nothing is waiting on the user.' }
+  }
+  if (Date.now() - pending.at > CONFIRM_WINDOW_MS) {
+    confirmation.pending = null
+    return { ok: false, reason: 'that request has expired. Propose it again.' }
+  }
+  if (!lastUtterance || lastUtterance.at < pending.at) {
+    return {
+      ok: false,
+      reason: 'the user has not said anything since you asked. Wait for them.',
+    }
+  }
+  const quote = flatten(said)
+  if (!quote || !flatten(lastUtterance.text).includes(quote)) {
+    return {
+      ok: false,
+      reason:
+        'those are not the words that were heard. Quote the user verbatim,' +
+        ' or if they did not agree, do not call this at all.',
+    }
+  }
+  confirmation.granted = { signature: pending.signature, at: Date.now() }
+  confirmation.pending = null
+  console.log(`[jarvis] ${pending.name} released by the user's reply`)
+  return { ok: true, tool: pending.name }
 }
 
 /**
@@ -386,8 +454,10 @@ const enforcePolicy = async (input) => {
       reason =
         'Hold: this action would change something and the user has not agreed' +
         ' to it yet. Say in one short sentence exactly what you are about to' +
-        ' do, then ask them to confirm. Do not attempt it again until they' +
-        ' have answered yes.'
+        ' do, then ask them. Listen to their whole reply: if they agree, call' +
+        ' mcp__jarvis_consent__confirm quoting their words and then do it; if' +
+        ' they correct you, propose the corrected action instead; if they' +
+        ' refuse, leave it. Do not attempt this again unconfirmed.'
     }
   }
   if (!reason) return {}
@@ -1389,6 +1459,10 @@ wss.on('connection', (socket) => {
         ...(DISABLED.has('interface')
           ? {}
           : { jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })) }),
+        // How a held action is released. Only useful while writes are on —
+        // with them off nothing is ever held, and the tool would be a schema
+        // on every turn for a situation that cannot arise.
+        ...(ALLOW_WRITES ? { jarvis_consent: consentServer(claimConsent) } : {}),
         // The user's own Chrome, over the extension's native-host socket. It
         // holds no per-connection state, but it is built here with the rest so
         // the write gate is read once, at the same point as everything else.

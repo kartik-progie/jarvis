@@ -32,7 +32,13 @@ Two constraints worth remembering before planning anything:
 
 ---
 
-## 1. Make confirmation a conversation · `todo`
+## 1. Make confirmation a conversation · `done`
+
+Built in `bridge/consent.mjs`. Verified: *"yes, go ahead and open it"* — which the
+old regex rejected — now releases the action, and *"no not that one, the BBC
+news site instead"* re-proposes the corrected action and asks again instead of
+confirming the wrong one.
+
 
 **The problem.** The gate added in `197168f` matches the reply against a regex
 anchored at both ends. `"yes"` and `"go ahead"` work; `"yes, open it"` does not,

@@ -139,6 +139,12 @@ export function decideTool(name, allowWrites = false) {
     // a write and would hold the whole surface back behind allowWrites.
     if (server === 'jarvis' || server === 'jarvis_ui') return true
 
+    // Reporting that the user agreed is not itself an action on the world, so
+    // it cannot be the thing a confirmation is required for — gating it would
+    // mean needing permission to grant permission. What it can release is
+    // bounded in server.mjs: one pending action, quoted from real speech.
+    if (server === 'jarvis_consent') return true
+
     // The browser server gates itself, at construction: chromeServer() only
     // builds the acting tools — click, type, form input, close tab — when
     // allowWrites is set, so anything that reaches here at all is something
