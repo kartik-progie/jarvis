@@ -89,13 +89,23 @@ website. Mostly needs a prompt section so it knows the common ones by name.
 PowerShell. Controls whatever is playing, Spotify included, with no account
 needed. The cheap 80% of "play some music".
 
-**2c. Spotify properly** — "play *Rubber Soul*" needs the Web API and an OAuth
+**2c. Spotify properly** — note the desktop app is **not installed** on this
+machine (nothing at `%APPDATA%\Spotify\Spotify.exe`), so 2a and 2b have nothing
+to drive yet: either install it, or treat Spotify as web-only and drive
+`open.spotify.com` in the browser. "play *Rubber Soul*" needs the Web API and an OAuth
 token, or the local app's URI scheme (`spotify:search:…`) which opens a search
 rather than playing. The API is a real integration: its own credentials, a
 refresh token, a small MCP server. Worth it only if 2b proves not enough.
 
-**2d. Chrome profile switching** — `chrome.exe --profile-directory="Profile 2"`.
-Simple, and needs the profile names discovered once and written down.
+**2d. Chrome profile switching** — `chrome.exe --profile-directory="<dir>"`.
+Simple. The display names live in Chrome's `Local State`
+(`%LOCALAPPDATA%\Google\Chrome\User Data\Local State`, under
+`profile.info_cache`) and map to directories like `Default`, `Profile 3`.
+
+Read them at runtime rather than writing them down — this repo is public, and
+profile names are personal. Checked on this machine: four profiles, **two
+sharing a display name**, so "switch to my profile" is ambiguous. JARVIS should
+look them up, and ask which one when a name is not unique.
 
 **2e. Mail** — the claude.ai connectors attached to this account are Claude Docs
 and Higgsfield, *not* mail. So either open webmail in the browser (trivial), or
