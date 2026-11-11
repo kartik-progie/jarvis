@@ -545,6 +545,20 @@ export default function App() {
    */
   useEffect(() => {
     if (phase !== 'offline') return
+    /**
+     * Under the desktop shell there is nobody to press the button.
+     *
+     * The window starts hidden and listens — that is the whole point of it —
+     * so waiting for a click or a clap would leave it sitting offline and deaf
+     * behind the tray icon. The shell loads the page from its own origin, has
+     * already granted the microphone, and starts Chromium with the autoplay
+     * gesture requirement lifted, so the two things the ignition exists to
+     * obtain are both in hand before the page opens.
+     */
+    if ((window as unknown as { jarvisDesktop?: unknown }).jarvisDesktop) {
+      void powerOn()
+      return
+    }
     let live: { stop: () => void } | null = null
     let gone = false
     void listenForClap(() => {

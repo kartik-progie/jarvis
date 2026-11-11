@@ -17,7 +17,9 @@
     "preview": "vite preview",
     "bridge": "node bridge/server.mjs",
     "bridge:writes": "node bridge/server.mjs --writes",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "desktop": "electron desktop/main.mjs",
+    "desktop:hidden": "electron desktop/main.mjs --hidden"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
@@ -46,9 +48,17 @@
     "@types/three": "^0.185.3",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.4",
+    "electron": "^45.3.0",
     "oxlint": "^1.75.0",
     "tsx": "^4.23.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "onnxruntime-node@1.21.0": true,
+    "protobufjs@7.6.5": true,
+    "sharp@0.34.5": true,
+    "electron@45.3.0": true
   }
 }
