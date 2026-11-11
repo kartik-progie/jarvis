@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
+import { PerformanceMonitor } from '@react-three/drei'
 import {
   EffectComposer,
   Bloom,
@@ -193,13 +194,34 @@ function Rig() {
 }
 
 export function Scene() {
+  /**
+   * Resolution follows what the machine can actually sustain.
+   *
+   * A fixed dpr has to be either too expensive for a modest GPU or too soft on
+   * a good one. The post chain below is the real cost — bloom with a mipmap
+   * blur, then chromatic aberration, then noise, each a full-screen pass — so
+   * on integrated graphics the honest lever is how many pixels those passes
+   * touch, not which effects run. Dropping them would change the look; this
+   * only changes the sharpness, and bloom hides most of that.
+   *
+   * PerformanceMonitor samples the frame rate and reports a 0-1 factor, which
+   * maps to 0.65-1 here: full resolution while the frames hold, softer rather
+   * than stuttering when they do not, and back up when the load passes.
+   */
+  const [dpr, setDpr] = useState(1)
+
   return (
     <Canvas
       className="scene"
       camera={{ position: [0, 0, 6.2], fov: 45 }}
-      gl={{ antialias: true, alpha: true }}
-      dpr={[1, 2]}
+      // antialias is redundant under EffectComposer — the scene renders into
+      // its own target, and multisampling={0} below is the setting that counts.
+      gl={{ antialias: false, alpha: true, powerPreference: 'high-performance' }}
+      dpr={dpr}
     >
+      <PerformanceMonitor
+        onChange={({ factor }) => setDpr(Number((0.65 + 0.35 * factor).toFixed(2)))}
+      />
       <Rig />
       {/*
         multisampling={0} on purpose. The default is 8, which allocates a
