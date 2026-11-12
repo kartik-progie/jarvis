@@ -13,6 +13,7 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import { withSavedSettings } from '../bridge/env.mjs'
 
 /**
  * Put MediaPipe's WebAssembly where the page can actually load it.
@@ -57,10 +58,10 @@ const paint = (tag, colour) => (line) =>
 
 const children = []
 
-function run(name, command, args, colour, env) {
+function run(name, command, args, colour, env, base = process.env) {
   const label = paint(name, colour)
   const child = spawn(command, args, {
-    env: { ...process.env, ...env },
+    env: { ...base, ...env },
     shell: false,
   })
   child.stdout.on('data', (d) => process.stdout.write(label(d) + '\n'))
@@ -114,7 +115,15 @@ if (port) {
 vendorWasm()
 
 console.log('\nJ.A.R.V.I.S. starting — the brain and the face.\n')
-run('bridge', 'node', ['bridge/server.mjs'], '36', bridgeEnv)
+
+// A terminal opened before a setting was saved never sees it — see
+// bridge/env.mjs. Fill those gaps from what is saved on the machine, and say
+// which, so a bridge missing its key is not a silent mystery.
+const saved = withSavedSettings()
+if (saved.filled.length) {
+  console.log(`  read from saved settings: ${saved.filled.join(', ')}\n`)
+}
+run('bridge', 'node', ['bridge/server.mjs'], '36', bridgeEnv, saved.env)
 // npm is a shell script on most systems; call the vite binary directly so we do
 // not need shell:true (which would break the argument handling above).
 run('face', process.execPath, ['node_modules/vite/bin/vite.js'], '35', {})

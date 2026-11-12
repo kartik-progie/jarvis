@@ -25,6 +25,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, extname, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { withSavedSettings } from '../bridge/env.mjs'
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..')
 const DIST = join(ROOT, 'dist')
@@ -121,18 +122,24 @@ function serveFace() {
 /**
  * The brain, as a child process.
  *
- * Inherits this process's environment, so the JARVIS_* variables set on the
- * machine (model, effort, connectors, writes) apply exactly as they do when
- * you run `npm start` yourself — the app changes how JARVIS is launched, not
- * how it is configured.
+ * Its settings are the ones saved on the machine, not merely the ones this
+ * process happened to inherit. A tray app is exactly the thing that gets
+ * launched from a terminal opened hours earlier, before the ElevenLabs key or
+ * a JARVIS_* switch was saved — and a bridge started that way had no key, so
+ * the window could not hear a word and gave no sign why. withSavedSettings()
+ * fills those gaps; anything the launching shell does set still wins.
  */
 function startBridge() {
+  const saved = withSavedSettings()
+  if (saved.filled.length) {
+    console.log(`[desktop] read from saved settings: ${saved.filled.join(', ')}`)
+  }
   // Plain `node`, not this process with ELECTRON_RUN_AS_NODE: the bridge
   // spawns the Claude CLI underneath it, and that flag would be inherited by
   // everything below. The repo already requires Node to exist.
   bridge = spawn('node', [join(ROOT, 'bridge', 'server.mjs')], {
     cwd: ROOT,
-    env: { ...process.env },
+    env: saved.env,
     // No `shell: true`. node.exe is a real executable on every platform this
     // runs on, and a shell here would concatenate the path rather than pass it
     // as an argument — which Node now warns about for good reason.
